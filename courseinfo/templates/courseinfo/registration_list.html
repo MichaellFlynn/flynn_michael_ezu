@@ -1,0 +1,22 @@
+{% extends 'courseinfo/base.html' %}
+
+{% block title %}
+    Registration List
+{% endblock %}
+
+{% block content %}
+    <h2>Registration List</h2>
+    <div>
+        <a href="{% url 'courseinfo_registration_create_urlpattern' %}">
+            Create New Registration</a>
+    </div>
+    <ul>
+        {% for registration in registration_list %}
+            <Li>
+                <a href="{{ registration.get_absolute_url }}">{{ registration }}</a>
+            </Li>
+        {% empty %}
+            <Li><em>There are currently no registrations available.</em></Li>
+        {% endfor %}
+    </ul>
+{% endblock %}

@@ -1,0 +1,49 @@
+{% extends 'courseinfo/base.html' %}
+
+{% block title %}
+    Instructor - {{ instructor }}
+{% endblock %}
+
+{% block content %}
+    <h2>{{ instructor }}</h2>
+    <ul>
+        <li>
+          <a href="{{ instructor.get_update_url }}">
+            Edit Instructor</a></li>
+        <li>
+          <a href="{{ instructor.get_delete_url }}">
+            Delete Instructor</a></li>
+    </ul>
+
+    <section>
+        <table>
+            <tr>
+                <th>First Name:</th>
+                <td>{{ instructor.first_name }}</td>
+            </tr>
+            <tr>
+                <th>Last Name:</th>
+                <td>{{ instructor.last_name }}</td>
+            </tr>
+            {% if instructor.disambiguator %}
+                <tr>
+                    <th>Disambiguator:</th>
+                    <td>{{ instructor.disambiguator }}</td>
+                </tr>
+            {% endif %}
+        </table>
+    </section>
+
+    <section>
+        <h3>Sections</h3>
+        <ul>
+            {% for section in section_list %}
+                <li>
+                    <a href="{{ section.get_absolute_url }}">{{ section }}</a>
+                </li>
+            {% empty %}
+                <li><em>There are currently no sections for this instructor.</em></li>
+            {% endfor %}
+        </ul>
+    </section>
+{% endblock %}
