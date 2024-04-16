@@ -13,7 +13,9 @@
             Are you sure that you want to delete
             registration {{ registration }}?
         </p>
-        <a href="{{ registration.get_absolute_url }}">Cancel</a>
-        <button type="submit">Delete Registration</button>
+        <a href="{{ registration.get_absolute_url }}"
+            class="button button-primary">
+            Cancel</a>
+        <button type="submit" class="button button-primary">Delete Registration</button>
     </form>
 {% endblock %}

@@ -1,10 +1,19 @@
+import os
+from django.conf import settings
+from django.contrib.staticfiles.storage import staticfiles_storage
 from django.test import TestCase
 from courseinfo.models import Period, Year, Semester, Course, Instructor, Student, Section, Registration
 from django.db import IntegrityError
 from django.urls import reverse
 
+
 # NOTE: Template Tests all required the additional 'name=' param in urls.py configuration for reverse() to work
 # Credit to https://stackoverflow.com/questions/29590623/testing-for-links-in-a-page-content-in-django, Week 10 Tests
+
+# Function to delete all the existing objects from migration 0005, so we can test CRUD from scratch
+def clear_migration_data():
+    Instructor.objects.all().delete()
+    Student.objects.all().delete()
 
 
 class ModelTests(TestCase):
@@ -118,6 +127,10 @@ class ModelTests(TestCase):
 
 class EmptyTemplateTests(TestCase):
     # Test response with no registrations
+    @classmethod
+    def setUpTestData(cls):
+        clear_migration_data()
+
     def test_registration_list_view_empty(self):
         response = self.client.get(reverse('courseinfo_registration_list_urlpattern'))
         self.assertEqual(response.status_code, 200)
@@ -168,6 +181,7 @@ class PopulatedTemplateTests(TestCase):
     # Populate our database for these template tests
     @classmethod
     def setUpTestData(cls):
+        clear_migration_data()
         cls.instructor = Instructor.objects.create(first_name="Henry", last_name="Gerard", disambiguator="Harvard")
         cls.student = Student.objects.create(first_name="Harvey", last_name="Specter", disambiguator="New York")
         cls.year = Year.objects.create(year=2024)
@@ -449,7 +463,11 @@ class HomePageTests(TestCase):
 
 # For Week 11 (testing Week 10: Forms Assignment) CRUD Behavior
 class FormCRUDTests(TestCase):
-    # TODO: Figure out how to implement tests for dependent objects (e.g., section, registration, semester)
+
+    @classmethod
+    def setUpTestData(cls):
+        clear_migration_data()
+
     def test_instructor_crud(self):
         # [C] Begin by Creating an Instructor
         instructor_count = Instructor.objects.count()
@@ -476,9 +494,11 @@ class FormCRUDTests(TestCase):
                                                            kwargs={'pk': instructor.pk}))
         self.assertEqual(read_instructor_detailed.status_code, 200)
         self.assertContains(read_instructor_detailed,
-                            f'<a href="{instructor.get_update_url()}">Edit Instructor</a>')
+                            f'<a href="{instructor.get_update_url()}" class="button button-primary">'
+                            f'Edit Instructor</a>')
         self.assertContains(read_instructor_detailed,
-                            f'<a href="{instructor.get_delete_url()}">Delete Instructor</a>')
+                            f'<a href="{instructor.get_delete_url()}" class="button button-primary">'
+                            f'Delete Instructor</a>')
 
         # [U] Update the instructor information
         self.assertEqual(instructor.disambiguator, "")
@@ -502,18 +522,532 @@ class FormCRUDTests(TestCase):
                                           data={'first_name': 'Henry',
                                                 'last_name': 'Gerard',
                                                 'disambiguator': 'Harvard'})
-        self.assertEqual(post_duplicate.status_code, 200)  # No redirect because it cannot be created
+        self.assertEqual(post_duplicate.status_code, 200)  # No redirect because it cannot be created - odd code
         self.assertTemplateUsed(post_duplicate, 'courseinfo/instructor_form.html')
         self.assertContains(post_duplicate,
                             "<li>Instructor with this Last name, First name and Disambiguator already exists.</li>",
                             html=True)
 
-        # [D] Delete the instructor
+        # [D] Attempt to delete Instructor (expect refusal due to a dependent Section)
+        course = Course.objects.create(course_name='A', course_number='1')
+        year = Year.objects.create(year=2024)
+        period = Period.objects.create(period_sequence=1, period_name="Spring")
+        semester = Semester.objects.create(year=year, period=period)
+        section = Section.objects.create(section_name="G", semester=semester, course=course, instructor=instructor)
         get_delete_instructor = self.client.get(reverse('courseinfo_instructor_delete_urlpattern',
                                                         kwargs={'pk': instructor.pk}))
         self.assertEqual(get_delete_instructor.status_code, 200)
-        self.assertTemplateUsed(get_delete_instructor, 'courseinfo/instructor_confirm_delete.html')
+        self.assertTemplateUsed(get_delete_instructor, 'courseinfo/instructor_refuse_delete.html')
+
+        # [D] Delete the Section, allowing for deletion of Instructor
+        section.delete()
+        get_delete_instructor_confirm = self.client.get(reverse('courseinfo_instructor_delete_urlpattern',
+                                                        kwargs={'pk': instructor.pk}))
+        self.assertEqual(get_delete_instructor_confirm.status_code, 200)
+        self.assertTemplateUsed(get_delete_instructor_confirm, 'courseinfo/instructor_confirm_delete.html')
         post_delete_instructor = self.client.post(reverse('courseinfo_instructor_delete_urlpattern',
                                                           kwargs={'pk': instructor.pk}))
         self.assertEqual(post_delete_instructor.status_code, 302)
         self.assertRedirects(post_delete_instructor, reverse('courseinfo_instructor_list_urlpattern'))
+        for obj in [semester, year, period, course]:
+            obj.delete()
+
+    def test_registration_crud(self):
+        # Setting up structures necessary prior to Registration creation
+        instructor = Instructor.objects.create(first_name="A", last_name="B", disambiguator="C")
+        student = Student.objects.create(first_name="X", last_name="Y", disambiguator="Z")
+        year = Year.objects.create(year=2024)
+        period = Period.objects.create(period_sequence=1, period_name="Spring")
+        semester = Semester.objects.create(year=year, period=period)
+        course = Course.objects.create(course_number="CS123", course_name="Computer Science")
+        section = Section.objects.create(section_name="G", semester=semester, course=course, instructor=instructor)
+
+        # [C] Begin by Creating a Registration
+        registration_count = Registration.objects.count()
+        get_create_registration = self.client.get(reverse("courseinfo_registration_create_urlpattern"))
+        self.assertEqual(get_create_registration.status_code, 200)
+        self.assertTemplateUsed(get_create_registration, 'courseinfo/registration_form.html')
+        post_create_registration = self.client.post(reverse('courseinfo_registration_create_urlpattern'),
+                                                    data={'student': student.pk, 'section': section.pk})
+        self.assertEqual(post_create_registration.status_code, 302)
+        registration = Registration.objects.first()
+        self.assertRedirects(post_create_registration, reverse('courseinfo_registration_detail_urlpattern',
+                                                               kwargs={'pk': registration.pk}))
+        self.assertEqual(Instructor.objects.count(), registration_count + 1)
+
+        # [R] Check that the created Registration exists (list page)
+        read_registration_list = self.client.get(reverse('courseinfo_registration_list_urlpattern'))
+        self.assertEqual(read_registration_list.status_code, 200)
+        self.assertContains(read_registration_list, f'<a href="%s">{registration.__str__()}</a>'
+                            % reverse('courseinfo_registration_detail_urlpattern',
+                                      kwargs={'pk': registration.pk}), html=True)
+
+        # [U/D] Check that update and delete exists on detailed page
+        read_registration_detailed = self.client.get(reverse("courseinfo_registration_detail_urlpattern",
+                                                             kwargs={'pk': registration.pk}))
+        self.assertEqual(read_registration_detailed.status_code, 200)
+        self.assertContains(read_registration_detailed,
+                            f'<a href="{registration.get_update_url()}" class="button button-primary">'
+                            f'Edit Registration</a>')
+        self.assertContains(read_registration_detailed,
+                            f'<a href="{registration.get_delete_url()}" class="button button-primary">'
+                            f'Delete Registration</a>')
+
+        # [U] Update the Registration information with a new student
+        new_student = Student.objects.create(first_name='A', last_name='B')
+        self.assertEqual(registration.student.pk, student.pk)
+        get_update_instructor = self.client.get(reverse("courseinfo_registration_update_urlpattern",
+                                                        kwargs={'pk': registration.pk}))
+        self.assertEqual(get_update_instructor.status_code, 200)
+        self.assertTemplateUsed(get_update_instructor, 'courseinfo/registration_form_update.html')
+        post_update_registration = self.client.post(reverse('courseinfo_registration_update_urlpattern',
+                                                            kwargs={'pk': registration.pk}),
+                                                    data={"student": new_student.pk,
+                                                          "section": section.pk})
+        self.assertEqual(post_update_registration.status_code, 302)
+        self.assertRedirects(post_update_registration, reverse('courseinfo_registration_detail_urlpattern',
+                                                               kwargs={'pk': registration.pk}))
+        registration.refresh_from_db()
+        self.assertEqual(registration.student.pk, new_student.pk)
+
+        # [C] Trying to duplicate registration (expect error message)
+        post_duplicate = self.client.post(reverse('courseinfo_registration_create_urlpattern'),
+                                          data={"student": new_student.pk,
+                                                "section": section.pk})
+        self.assertEqual(post_duplicate.status_code, 200)  # No redirect because it cannot be created
+        self.assertTemplateUsed(post_duplicate, 'courseinfo/registration_form.html')
+        self.assertContains(post_duplicate,
+                            "<li>Registration with this Section and Student already exists.</li>",
+                            html=True)
+
+        # [D] Delete registration
+        get_delete_registration = self.client.get(reverse('courseinfo_registration_delete_urlpattern',
+                                                          kwargs={'pk': registration.pk}))
+        self.assertEqual(get_delete_registration.status_code, 200)
+        self.assertTemplateUsed(get_delete_registration, 'courseinfo/registration_confirm_delete.html')
+        post_delete_registration = self.client.post(reverse('courseinfo_registration_delete_urlpattern',
+                                                            kwargs={'pk': registration.pk}))
+        self.assertEqual(post_delete_registration.status_code, 302)
+        self.assertRedirects(post_delete_registration, reverse('courseinfo_registration_list_urlpattern'))
+
+        # Cleanup setup objects
+        for obj in [section, instructor, student, semester, year, period, course, new_student]:
+            obj.delete()
+
+    def test_section_crud(self):
+        # Setting up structures necessary prior to Section creation
+        instructor = Instructor.objects.create(first_name="A", last_name="B", disambiguator="C")
+        year = Year.objects.create(year=2024)
+        period = Period.objects.create(period_sequence=1, period_name="Spring")
+        semester = Semester.objects.create(year=year, period=period)
+        course = Course.objects.create(course_number="CS123", course_name="Computer Science")
+
+        # [C] Begin by Creating a Section
+        section_count = Section.objects.count()
+        get_create_section = self.client.get(reverse("courseinfo_section_create_urlpattern"))
+        self.assertEqual(get_create_section.status_code, 200)
+        self.assertTemplateUsed(get_create_section, 'courseinfo/section_form.html')
+        post_create_section = self.client.post(reverse('courseinfo_section_create_urlpattern'),
+                                               data={'section_name': 'G',
+                                                     'instructor': instructor.pk,
+                                                     'semester': semester.pk,
+                                                     'course': course.pk})
+        self.assertEqual(post_create_section.status_code, 302)
+        section = Section.objects.first()
+        self.assertRedirects(post_create_section, reverse('courseinfo_section_detail_urlpattern',
+                                                          kwargs={'pk': section.pk}))
+        self.assertEqual(Section.objects.count(), section_count + 1)
+
+        # [R] Check that the created Section exists (list page)
+        read_section_list = self.client.get(reverse('courseinfo_section_list_urlpattern'))
+        self.assertEqual(read_section_list.status_code, 200)
+        self.assertContains(read_section_list, f'<a href="%s">{section.__str__()}</a>'
+                            % reverse('courseinfo_section_detail_urlpattern',
+                                      kwargs={'pk': section.pk}), html=True)
+
+        # [U/D] Check that update and delete exists on detailed page
+        read_section_detailed = self.client.get(reverse("courseinfo_section_detail_urlpattern",
+                                                        kwargs={'pk': section.pk}))
+        self.assertEqual(read_section_detailed.status_code, 200)
+        self.assertContains(read_section_detailed,
+                            f'<a href="{section.get_update_url()}" class="button button-primary">'
+                            f'Edit Section</a>')
+        self.assertContains(read_section_detailed,
+                            f'<a href="{section.get_delete_url()}" class="button button-primary">'
+                            f'Delete Section</a>')
+
+        # [U] Update the Section information
+        self.assertEqual(section.section_name, "G")
+        get_update_section = self.client.get(reverse("courseinfo_section_update_urlpattern",
+                                                     kwargs={'pk': section.pk}))
+        self.assertEqual(get_update_section.status_code, 200)
+        self.assertTemplateUsed(get_update_section, 'courseinfo/section_form_update.html')
+        post_update_section = self.client.post(reverse('courseinfo_section_update_urlpattern',
+                                                       kwargs={'pk': section.pk}),
+                                               data={'section_name': 'UG',
+                                                     'instructor': instructor.pk,
+                                                     'semester': semester.pk,
+                                                     'course': course.pk})
+        self.assertEqual(post_update_section.status_code, 302)
+        self.assertRedirects(post_update_section, reverse('courseinfo_section_detail_urlpattern',
+                                                          kwargs={'pk': section.pk}))
+        section.refresh_from_db()
+        self.assertEqual(section.section_name, "UG")
+
+        # [C] Trying to duplicate section (expect error message)
+        post_duplicate = self.client.post(reverse('courseinfo_section_create_urlpattern'),
+                                          data={'section_name': 'UG',
+                                                'instructor': instructor.pk,
+                                                'semester': semester.pk,
+                                                'course': course.pk})
+        self.assertEqual(post_duplicate.status_code, 200)  # No redirect because it cannot be created
+        self.assertTemplateUsed(post_duplicate, 'courseinfo/section_form.html')
+        self.assertContains(post_duplicate,
+                            "<li>Section with this Semester, Course and Section name already exists.</li>",
+                            html=True)
+
+        # [D] Attempt to delete Section (expect refusal due to a dependent registration)
+        student = Student.objects.create(first_name="Test", last_name="Test")
+        registration = Registration.objects.create(section=section, student=student)
+        get_delete_section = self.client.get(reverse('courseinfo_section_delete_urlpattern',
+                                                     kwargs={'pk': section.pk}))
+        self.assertEqual(get_delete_section.status_code, 200)
+        self.assertTemplateUsed(get_delete_section, 'courseinfo/section_refuse_delete.html')
+
+        # [D] Now, removing the dependencies to actually delete Section
+        registration.delete()
+        student.delete()
+        get_delete_section_confirm = self.client.get(reverse('courseinfo_section_delete_urlpattern',
+                                                     kwargs={'pk': section.pk}))
+        self.assertEqual(get_delete_section_confirm.status_code, 200)
+        self.assertTemplateUsed(get_delete_section_confirm, 'courseinfo/section_confirm_delete.html')
+        post_delete_section = self.client.post(reverse('courseinfo_section_delete_urlpattern',
+                                                       kwargs={'pk': section.pk}))
+        self.assertEqual(post_delete_section.status_code, 302)
+        self.assertRedirects(post_delete_section, reverse('courseinfo_section_list_urlpattern'))
+
+        # Cleanup setup objects
+        for obj in [instructor, semester, year, period, course]:
+            obj.delete()
+
+    def test_course_crud(self):
+        # [C] Begin by Creating a Course
+        course_count = Course.objects.count()
+        get_create_course = self.client.get(reverse("courseinfo_course_create_urlpattern"))
+        self.assertEqual(get_create_course.status_code, 200)
+        self.assertTemplateUsed(get_create_course, 'courseinfo/course_form.html')
+        post_create_course = self.client.post(reverse('courseinfo_course_create_urlpattern'),
+                                              data={'course_number': 'CS101',
+                                                    'course_name': 'Intro Comp Sci'})
+        self.assertEqual(post_create_course.status_code, 302)
+        course = Course.objects.first()
+        self.assertRedirects(post_create_course, reverse('courseinfo_course_detail_urlpattern',
+                                                         kwargs={'pk': course.pk}))
+        self.assertEqual(Course.objects.count(), course_count + 1)
+
+        # [R] Check that the created Course exists (list page)
+        read_course_list = self.client.get(reverse('courseinfo_course_list_urlpattern'))
+        self.assertEqual(read_course_list.status_code, 200)
+        self.assertContains(read_course_list, f'<a href="%s">{course.__str__()}</a>'
+                            % reverse('courseinfo_course_detail_urlpattern',
+                                      kwargs={'pk': course.pk}), html=True)
+
+        # [U/D] Check that update and delete exists on detailed page
+        read_course_detailed = self.client.get(reverse("courseinfo_course_detail_urlpattern",
+                                                       kwargs={'pk': course.pk}))
+        self.assertEqual(read_course_detailed.status_code, 200)
+        self.assertContains(read_course_detailed,
+                            f'<a href="{course.get_update_url()}" class="button button-primary">'
+                            f'Edit Course</a>')
+        self.assertContains(read_course_detailed,
+                            f'<a href="{course.get_delete_url()}" class="button button-primary">'
+                            f'Delete Course</a>')
+
+        # [U] Update the Course information
+        self.assertEqual(course.course_name, "Intro Comp Sci")
+        get_update_course = self.client.get(reverse("courseinfo_course_update_urlpattern",
+                                                    kwargs={'pk': course.pk}))
+        self.assertEqual(get_update_course.status_code, 200)
+        self.assertTemplateUsed(get_update_course, 'courseinfo/course_form_update.html')
+        post_update_course = self.client.post(reverse('courseinfo_course_update_urlpattern',
+                                                      kwargs={'pk': course.pk}),
+                                              data={'course_number': 'CS101',
+                                                    'course_name': 'Comp Sci Intro'})
+        self.assertEqual(post_update_course.status_code, 302)
+        self.assertRedirects(post_update_course, reverse('courseinfo_course_detail_urlpattern',
+                                                         kwargs={'pk': course.pk}))
+        course.refresh_from_db()
+        self.assertEqual(course.course_name, "Comp Sci Intro")
+
+        # [C] Trying to duplicate course (expect error message)
+        post_duplicate = self.client.post(reverse('courseinfo_course_create_urlpattern'),
+                                          data={'course_number': 'CS101',
+                                                'course_name': 'Comp Sci Intro'})
+        self.assertEqual(post_duplicate.status_code, 200)  # No redirect because it cannot be created
+        self.assertTemplateUsed(post_duplicate, 'courseinfo/course_form.html')
+        self.assertContains(post_duplicate,
+                            "<li>Course with this Course number and Course name already exists.</li>",
+                            html=True)
+
+        # [D] Attempt to delete Course (expect refusal due to a dependent Section)
+        instructor = Instructor.objects.create(first_name="A", last_name="B", disambiguator="C")
+        year = Year.objects.create(year=2024)
+        period = Period.objects.create(period_sequence=1, period_name="Spring")
+        semester = Semester.objects.create(year=year, period=period)
+        section = Section.objects.create(section_name='G', semester=semester, course=course, instructor=instructor)
+        get_delete_course = self.client.get(reverse('courseinfo_course_delete_urlpattern',
+                                                    kwargs={'pk': course.pk}))
+        self.assertEqual(get_delete_course.status_code, 200)
+        self.assertTemplateUsed(get_delete_course, 'courseinfo/course_refuse_delete.html')
+
+        # [D] Now, removing the dependencies to actually delete Course
+        for obj in [section, instructor, semester, year, period]:
+            obj.delete()
+        get_delete_course_confirm = self.client.get(reverse('courseinfo_course_delete_urlpattern',
+                                                            kwargs={'pk': course.pk}))
+        self.assertEqual(get_delete_course_confirm.status_code, 200)
+        self.assertTemplateUsed(get_delete_course_confirm, 'courseinfo/course_confirm_delete.html')
+        post_delete_course = self.client.post(reverse('courseinfo_course_delete_urlpattern',
+                                                      kwargs={'pk': course.pk}))
+        self.assertEqual(post_delete_course.status_code, 302)
+        self.assertRedirects(post_delete_course, reverse('courseinfo_course_list_urlpattern'))
+
+    def test_semester_crud(self):
+        # Setting up structures necessary prior to Section creation
+        year = Year.objects.create(year=2024)
+        period = Period.objects.create(period_sequence=1, period_name="Spring")
+
+        # [C] Begin by Creating a Semester
+        semester_count = Semester.objects.count()
+        get_create_semester = self.client.get(reverse("courseinfo_semester_create_urlpattern"))
+        self.assertEqual(get_create_semester.status_code, 200)
+        self.assertTemplateUsed(get_create_semester, 'courseinfo/semester_form.html')
+        post_create_semester = self.client.post(reverse('courseinfo_semester_create_urlpattern'),
+                                                data={'year': year.pk,
+                                                      'period': period.pk})
+        self.assertEqual(post_create_semester.status_code, 302)
+        semester = Semester.objects.first()
+        self.assertRedirects(post_create_semester, reverse('courseinfo_semester_detail_urlpattern',
+                                                           kwargs={'pk': semester.pk}))
+        self.assertEqual(Semester.objects.count(), semester_count + 1)
+
+        # [R] Check that the created Semester exists (list page)
+        read_semester_list = self.client.get(reverse('courseinfo_semester_list_urlpattern'))
+        self.assertEqual(read_semester_list.status_code, 200)
+        self.assertContains(read_semester_list, f'<a href="%s">{semester.__str__()}</a>'
+                            % reverse('courseinfo_semester_detail_urlpattern',
+                                      kwargs={'pk': semester.pk}), html=True)
+
+        # [U/D] Check that update and delete exists on detailed page
+        read_semester_detailed = self.client.get(reverse("courseinfo_semester_detail_urlpattern",
+                                                         kwargs={'pk': semester.pk}))
+        self.assertEqual(read_semester_detailed.status_code, 200)
+        self.assertContains(read_semester_detailed,
+                            f'<a href="{semester.get_update_url()}" class="button button-primary">'
+                            f'Edit Semester</a>')
+        self.assertContains(read_semester_detailed,
+                            f'<a href="{semester.get_delete_url()}" class="button button-primary">'
+                            f'Delete Semester</a>')
+
+        # [U] Update the Semester information with a new Year
+        self.assertEqual(semester.year.year, 2024)
+        new_year = Year.objects.create(year=2025)
+        get_update_semester = self.client.get(reverse("courseinfo_semester_update_urlpattern",
+                                                      kwargs={'pk': semester.pk}))
+        self.assertEqual(get_update_semester.status_code, 200)
+        self.assertTemplateUsed(get_update_semester, 'courseinfo/semester_form_update.html')
+        post_update_semester = self.client.post(reverse('courseinfo_semester_update_urlpattern',
+                                                        kwargs={'pk': semester.pk}),
+                                                data={'year': new_year.pk,
+                                                      'period': period.pk})
+        self.assertEqual(post_update_semester.status_code, 302)
+        self.assertRedirects(post_update_semester, reverse('courseinfo_semester_detail_urlpattern',
+                                                           kwargs={'pk': semester.pk}))
+        semester.refresh_from_db()
+        self.assertEqual(semester.year.year, 2025)
+
+        # [C] Trying to duplicate semester (expect error message)
+        post_duplicate = self.client.post(reverse('courseinfo_semester_create_urlpattern'),
+                                          data={'year': new_year.pk,
+                                                'period': period.pk})
+        self.assertEqual(post_duplicate.status_code, 200)  # No redirect because it cannot be created
+        self.assertTemplateUsed(post_duplicate, 'courseinfo/semester_form.html')
+        self.assertContains(post_duplicate,
+                            "<li>Semester with this Year and Period already exists.</li>",
+                            html=True)
+
+        # [D] Attempt to delete Semester (expect refusal due to a dependent Section)
+        course = Course.objects.create(course_name='Test', course_number='T1')
+        instructor = Instructor.objects.create(first_name="A", last_name="B")
+        section = Section.objects.create(course=course, instructor=instructor, semester=semester)
+        get_delete_semester = self.client.get(reverse('courseinfo_semester_delete_urlpattern',
+                                                      kwargs={'pk': semester.pk}))
+        self.assertEqual(get_delete_semester.status_code, 200)
+        self.assertTemplateUsed(get_delete_semester, 'courseinfo/semester_refuse_delete.html')
+
+        # [D] Now, removing the dependencies to actually delete Semester
+        section.delete()
+        get_delete_semester_confirm = self.client.get(reverse('courseinfo_semester_delete_urlpattern',
+                                                      kwargs={'pk': semester.pk}))
+        self.assertEqual(get_delete_semester_confirm.status_code, 200)
+        self.assertTemplateUsed(get_delete_semester_confirm, 'courseinfo/semester_confirm_delete.html')
+        post_delete_semester = self.client.post(reverse('courseinfo_semester_delete_urlpattern',
+                                                        kwargs={'pk': semester.pk}))
+        self.assertEqual(post_delete_semester.status_code, 302)
+        self.assertRedirects(post_delete_semester, reverse('courseinfo_semester_list_urlpattern'))
+
+        # Cleanup setup objects
+        for obj in [course, instructor, year, new_year, period]:
+            obj.delete()
+
+    def test_student_crud(self):
+        # [C] Begin by Creating a Student
+        student_count = Student.objects.count()
+        get_create_student = self.client.get(reverse("courseinfo_student_create_urlpattern"))
+        self.assertEqual(get_create_student.status_code, 200)
+        self.assertTemplateUsed(get_create_student, 'courseinfo/student_form.html')
+        post_create_student = self.client.post(reverse('courseinfo_student_create_urlpattern'),
+                                               data={'first_name': 'Henry', 'last_name': 'Gerard'})
+        self.assertEqual(post_create_student.status_code, 302)
+        student = Student.objects.first()
+        self.assertRedirects(post_create_student, reverse('courseinfo_student_detail_urlpattern',
+                                                          kwargs={'pk': student.pk}))
+        self.assertEqual(Student.objects.count(), student_count + 1)
+
+        # [R] Check that the created Student exists (list page)
+        read_student_list = self.client.get(reverse('courseinfo_student_list_urlpattern'))
+        self.assertEqual(read_student_list.status_code, 200)
+        self.assertContains(read_student_list, f'<a href="%s">{student.__str__()}</a>'
+                            % reverse('courseinfo_student_detail_urlpattern',
+                                      kwargs={'pk': student.pk}), html=True)
+
+        # [U/D] Check that update and delete exists on detailed page
+        read_student_detailed = self.client.get(reverse("courseinfo_student_detail_urlpattern",
+                                                        kwargs={'pk': student.pk}))
+        self.assertEqual(read_student_detailed.status_code, 200)
+        self.assertContains(read_student_detailed,
+                            f'<a href="{student.get_update_url()}" class="button button-primary">'
+                            f'Edit Student</a>')
+        self.assertContains(read_student_detailed,
+                            f'<a href="{student.get_delete_url()}" class="button button-primary">'
+                            f'Delete Student</a>')
+
+        # [U] Update the student information
+        self.assertEqual(student.disambiguator, "")
+        get_update_student = self.client.get(reverse("courseinfo_student_update_urlpattern",
+                                                     kwargs={'pk': student.pk}))
+        self.assertEqual(get_update_student.status_code, 200)
+        self.assertTemplateUsed(get_update_student, 'courseinfo/student_form_update.html')
+        post_update_student = self.client.post(reverse('courseinfo_student_update_urlpattern',
+                                                       kwargs={'pk': student.pk}),
+                                               data={"first_name": "Henry",
+                                                     "last_name": "Gerard",
+                                                     "disambiguator": "Harvard"})
+        self.assertEqual(post_update_student.status_code, 302)
+        self.assertRedirects(post_update_student, reverse('courseinfo_student_detail_urlpattern',
+                                                          kwargs={'pk': student.pk}))
+        student.refresh_from_db()
+        self.assertEqual(student.disambiguator, "Harvard")
+
+        # [C] Trying to duplicate student (expect error message)
+        post_duplicate = self.client.post(reverse('courseinfo_student_create_urlpattern'),
+                                          data={'first_name': 'Henry',
+                                                'last_name': 'Gerard',
+                                                'disambiguator': 'Harvard'})
+        self.assertEqual(post_duplicate.status_code, 200)  # No redirect because it cannot be created - odd code
+        self.assertTemplateUsed(post_duplicate, 'courseinfo/student_form.html')
+        self.assertContains(post_duplicate,
+                            "<li>Student with this Last name, First name and Disambiguator already exists.</li>",
+                            html=True)
+
+        # [D] Attempt to delete Student (expect refusal due to a dependent registration)
+        instructor = Instructor.objects.create(first_name="A", last_name="B", disambiguator="C")
+        year = Year.objects.create(year=2024)
+        period = Period.objects.create(period_sequence=1, period_name="Spring")
+        semester = Semester.objects.create(year=year, period=period)
+        course = Course.objects.create(course_number="CS123", course_name="Computer Science")
+        section = Section.objects.create(section_name="G", semester=semester, course=course, instructor=instructor)
+        registration = Registration.objects.create(student=student, section=section)
+        get_delete_student = self.client.get(reverse('courseinfo_student_delete_urlpattern',
+                                                     kwargs={'pk': student.pk}))
+        self.assertEqual(get_delete_student.status_code, 200)
+        self.assertTemplateUsed(get_delete_student, 'courseinfo/student_refuse_delete.html')
+
+        # [D] Delete the Registration, allowing for deletion of Student
+        registration.delete()
+        get_delete_student_confirm = self.client.get(reverse('courseinfo_student_delete_urlpattern',
+                                                             kwargs={'pk': student.pk}))
+        self.assertEqual(get_delete_student_confirm.status_code, 200)
+        self.assertTemplateUsed(get_delete_student_confirm, 'courseinfo/student_confirm_delete.html')
+        post_delete_student = self.client.post(reverse('courseinfo_student_delete_urlpattern',
+                                                       kwargs={'pk': student.pk}))
+        self.assertEqual(post_delete_student.status_code, 302)
+        self.assertRedirects(post_delete_student, reverse('courseinfo_student_list_urlpattern'))
+
+        # Cleanup
+        for obj in [section, instructor, semester, year, period, course]:
+            obj.delete()
+
+
+# For Week 12 (testing Week 11: Pagination and Staticfiles)
+class PaginationTests(TestCase):
+    # NOTE: Because of migrations, there should already be a lot of Student and Instructor objects
+    def test_student_pagination(self):
+        # Need to ensure > 25 Student entries exist before grabbing paginated list.
+        self.assertTrue(Student.objects.count() > 25)
+        get_paginated_student_list = self.client.get(reverse("courseinfo_student_list_urlpattern"))
+        self.assertEqual(get_paginated_student_list.status_code, 200)
+        self.assertContains(get_paginated_student_list, "Page 1")
+        self.assertContains(get_paginated_student_list, "<li><a href=\"?page=2\">Next</a></li>", html=True)
+
+        # Now, clear the objects and expect the pagination buttons to disappear
+        Student.objects.all().delete()
+        get_non_paginated_student_list = self.client.get(reverse("courseinfo_student_list_urlpattern"))
+        self.assertEqual(get_non_paginated_student_list.status_code, 200)
+        self.assertNotContains(get_non_paginated_student_list, "Page 1")
+        self.assertNotContains(get_non_paginated_student_list, "<li><a href=\"?page=2\">Next</a></li>", html=True)
+
+    def test_instructor_pagination(self):
+        # Need to ensure > 25 Instructor entries exist before grabbing paginated list.
+        self.assertTrue(Instructor.objects.count() > 25)
+        get_paginated_instructor_list = self.client.get(reverse("courseinfo_instructor_list_urlpattern"))
+        self.assertEqual(get_paginated_instructor_list.status_code, 200)
+        self.assertContains(get_paginated_instructor_list, "Page 1")
+        self.assertContains(get_paginated_instructor_list, "<li><a href=\"?page=2\">Next</a></li>", html=True)
+
+        # Now, clear the objects and expect the pagination buttons to disappear
+        Instructor.objects.all().delete()
+        get_non_paginated_instructor_list = self.client.get(reverse("courseinfo_instructor_list_urlpattern"))
+        self.assertEqual(get_non_paginated_instructor_list.status_code, 200)
+        self.assertNotContains(get_non_paginated_instructor_list, "Page 1")
+        self.assertNotContains(get_non_paginated_instructor_list, "<li><a href=\"?page=2\">Next</a></li>", html=True)
+
+    # Check that we don't paginate until the required number of objects are reached
+    def test_pagination_threshold(self):
+        clear_migration_data()  # Clears all Student and Instructor objects
+        for i in range(25):  # We add 25 objects of each because we paginate at 25
+            Instructor.objects.create(first_name=str(i), last_name=str(i))
+            Student.objects.create(first_name=str(i), last_name=str(i))
+        get_student_list = self.client.get(reverse("courseinfo_student_list_urlpattern"))
+        get_instructor_list = self.client.get(reverse("courseinfo_instructor_list_urlpattern"))
+        for response in [get_student_list, get_instructor_list]:
+            self.assertEqual(response.status_code, 200)
+            self.assertNotContains(response, "Page 1")
+            self.assertNotContains(response, "<li><a href=\"?page=2\">Next</a></li>", html=True)
+
+
+# For Week 12 (testing Week 11: Pagination and Staticfiles)
+class StaticFileTests(TestCase):
+    def test_find_static_files(self):
+        normalize_path = os.path.join(settings.STATIC_ROOT, 'courseinfo', 'normalize.css')
+        self.assertTrue(staticfiles_storage.exists(normalize_path))
+        skeleton_path = os.path.join(settings.STATIC_ROOT, 'courseinfo', 'skeleton.css')
+        self.assertTrue(staticfiles_storage.exists(skeleton_path))
+        style_sheet_path = os.path.join(settings.STATIC_ROOT, 'courseinfo', 'style.css')
+        self.assertTrue(staticfiles_storage.exists(style_sheet_path))
+
+    # Can theoretically duplicate this method for any response that expects a templated page using updated CSS
+    def test_home_uses_static_files(self):
+        response = self.client.get('', follow=True)
+        for file_name in ["normalize", "skeleton", "style"]:
+            self.assertContains(response, f"{file_name}.css")

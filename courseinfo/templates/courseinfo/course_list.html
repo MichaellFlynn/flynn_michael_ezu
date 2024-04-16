@@ -4,19 +4,33 @@
     Course List
 {% endblock %}
 
-{% block content %}
-    <h2>Course List</h2>
-    <div>
-        <a href="{% url 'courseinfo_course_create_urlpattern' %}">
-            Create New Course</a>
+{% block create_button %}
+    {% if perms.courseinfo.add_course %}
+    <a
+        href="{% url 'courseinfo_course_create_urlpattern'  %}"
+        class="button button-primary">
+      Create New Course</a>
+    {% endif %}
+{% endblock %}
+
+{% block org_content %}
+  <h2>Course List</h2>
+    {% if perms.courseinfo.add_course %}
+    <div class="mobile">
+      <a
+          href="{% url 'courseinfo_course_create_urlpattern' %}"
+          class="button button-primary">
+        Create New Course</a>
     </div>
-    <ul>
-        {% for course in course_list %}
-            <Li>
-                <a href="{{ course.get_absolute_url }}">{{ course }}</a>
-            </Li>
-        {% empty %}
-            <Li><em>There are currently no courses available.</em></Li>
-        {% endfor %}
-    </ul>
+    {% endif %}
+  <ul>
+    {% for course in course_list %}
+      <li>
+        <a href="{{ course.get_absolute_url }}">
+          {{ course }}</a>
+      </li>
+    {% empty %}
+      <li><em>There are currently no courses available.</em></li>
+    {% endfor %}
+  </ul>
 {% endblock %}

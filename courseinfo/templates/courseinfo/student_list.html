@@ -4,40 +4,33 @@
     Student List
 {% endblock %}
 
-{% block content %}
-    <h2>Student List</h2>
-    <div>
-        <a href="{% url 'courseinfo_student_create_urlpattern' %}">
-            Create New Student</a>
-    </div>
-    <ul>
-        {% for student in student_list %}
-            <Li>
-                <a href="{{ student.get_absolute_url }}">{{ student }}</a>
-            </Li>
-        {% empty %}
-            <Li><em>There are currently no students available.</em></Li>
-        {% endfor %}
-    </ul>
+{% block create_button %}
+    {% if perms.courseinfo.add_student %}
+    <a
+        href="{% url 'courseinfo_student_create_urlpattern'  %}"
+        class="button button-primary">
+      Create New Student</a>
+    {% endif %}
+{% endblock %}
 
-      {% if is_paginated %}
-    <ul>
-      {% if previous_page_url %}
-        <li>
-          <a href="{{ previous_page_url }}">
-            Previous</a>
-        </li>
-      {% endif %}
+{% block org_content %}
+  <h2>Student List</h2>
+    {% if perms.courseinfo.add_student %}
+    <div class="mobile">
+      <a
+          href="{% url 'courseinfo_student_create_urlpattern' %}"
+          class="button button-primary">
+        Create New Student</a>
+    </div>
+    {% endif %}
+  <ul>
+    {% for student in student_list %}
       <li>
-        Page {{ student_list.number }}
-        of {{ paginator.num_pages }}
+        <a href="{{ student.get_absolute_url }}">
+          {{ student }}</a>
       </li>
-      {% if next_page_url %}
-        <li>
-          <a href="{{ next_page_url }}">
-            Next</a>
-        </li>
-      {% endif %}
-    </ul>
-  {% endif %}
+    {% empty %}
+      <li><em>There are currently no students available.</em></li>
+    {% endfor %}
+  </ul>
 {% endblock %}

@@ -13,7 +13,9 @@
             Are you sure that you want to delete
             instructor {{ instructor }}?
         </p>
-        <a href="{{ instructor.get_absolute_url }}">Cancel</a>
-        <button type="submit">Delete Instructor</button>
+        <a href="{{ instructor.get_absolute_url }}"
+           class="button button-primary">
+        Cancel</a>
+        <button type="submit" class="button button-primary">Delete Instructor</button>
     </form>
 {% endblock %}

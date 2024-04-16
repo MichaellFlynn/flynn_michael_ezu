@@ -4,19 +4,33 @@
     Semester List
 {% endblock %}
 
-{% block content %}
-    <h2>Semester List</h2>
-    <div>
-        <a href="{% url 'courseinfo_semester_create_urlpattern' %}">
+{% block create_button %}
+    {% if perms.courseinfo.add_semester %}
+        <a
+                href="{% url 'courseinfo_semester_create_urlpattern' %}"
+                class="button button-primary">
             Create New Semester</a>
-    </div>
+    {% endif %}
+{% endblock %}
+
+{% block org_content %}
+    <h2>Semester List</h2>
+    {% if perms.courseinfo.add_semester %}
+        <div class="mobile">
+            <a
+                    href="{% url 'courseinfo_semester_create_urlpattern' %}"
+                    class="button button-primary">
+                Create New Semester</a>
+        </div>
+    {% endif %}
     <ul>
         {% for semester in semester_list %}
-            <Li>
-                <a href="{{ semester.get_absolute_url }}">{{ semester }}</a>
-            </Li>
+            <li>
+                <a href="{{ semester.get_absolute_url }}">
+                    {{ semester }}</a>
+            </li>
         {% empty %}
-            <Li><em>There are currently no semesters available.</em></Li>
+            <li><em>There are currently no semesters available.</em></li>
         {% endfor %}
     </ul>
 {% endblock %}
