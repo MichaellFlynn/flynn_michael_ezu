@@ -10,13 +10,13 @@
   <div class="offset-by-two eight columns">
     <h2>{{ student }}</h2>
     <ul class="inline">
-        {% if perms.courseinfo.change_student %}
+        {% if perms.courseinfo.change_registration %}
         <li>
           <a href="{{ registration.get_update_url }}"
           class="button button-primary">
             Edit Registration</a></li>
         {% endif %}
-        {% if perms.courseinfo.delete_student %}
+        {% if perms.courseinfo.delete_registration %}
           <a href="{{ registration.get_delete_url }}"
           class="button button-primary">
             Delete Registration</a></li>

@@ -32,21 +32,21 @@
                 <th>Last Name:</th>
                 <td>{{ student.last_name }}</td>
             </tr>
-            {% if student.nickname %}
+            {% if student.disambiguator %}
                 <tr>
-                    <th>Nickname:</th>
-                    <td>{{ student.nickname }}</td>
+                    <th>Disambiguator:</th>
+                    <td>{{ student.disambiguator }}</td>
                 </tr>
             {% endif %}
         </table>
     </section>
 
     <section>
-        <h3>Sections</h3>
+        <h3>Registrations</h3>
         <ul>
-            {% for section in section_list %}
+            {% for registration in registration_list %}
                 <li>
-                    <a href="{{ section.get_absolute_url }}">{{ section }}</a>
+                    <a href="{{ registration.get_absolute_url }}">{{ registration.section }}</a>
                 </li>
             {% empty %}
                 <li><em>This student is not currently registered for any sections.</em></li>
