@@ -329,4 +329,3 @@ class RegistrationDelete(LoginRequiredMixin, PermissionRequiredMixin, DeleteView
     model = Registration
     success_url = reverse_lazy('courseinfo_registration_list_urlpattern')
     permission_required = 'courseinfo.delete_registration'
-

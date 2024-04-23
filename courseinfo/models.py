@@ -55,6 +55,7 @@ class Semester(models.Model):
             UniqueConstraint(fields=['year', 'period'], name='unique_semester')
         ]
 
+
 class Course(models.Model):
     course_id = models.AutoField(primary_key=True)
     course_number = models.CharField(max_length=20)
@@ -153,7 +154,8 @@ class Student(models.Model):
     class Meta:
         ordering = ['last_name', 'first_name', 'disambiguator']
         constraints = [
-            UniqueConstraint(fields=['first_name', 'last_name', 'disambiguator'], name='unique_student')
+            UniqueConstraint(fields=['first_name', 'last_name', 'disambiguator'],
+                             name='unique_student')
         ]
 
 
