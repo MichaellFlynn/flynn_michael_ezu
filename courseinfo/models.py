@@ -95,7 +95,7 @@ class Instructor(models.Model):
     def __str__(self):
         result = ''
         if self.disambiguator =='':
-            result = '%s, %s' % (self.first_name, self.last_name)
+            result = '%s, %s' % (self.last_name, self.first_name)
         else:
             result = '%s, %s (%s)' % (self.last_name, self.first_name, self.disambiguator)
         return result

@@ -7,7 +7,6 @@ class InstructorForm(forms.ModelForm):
     class Meta:
         model = Instructor
         fields = '__all__'
-
     def clean_first_name(self):
         return self.cleaned_data['first_name'].strip()
 
